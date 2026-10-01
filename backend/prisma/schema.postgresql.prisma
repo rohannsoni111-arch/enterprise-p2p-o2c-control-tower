@@ -1,0 +1,572 @@
+// PostgreSQL Production Prisma Schema for Enterprise Procure-to-Pay (P2P) & Order-to-Cash (O2C) Digital Control Tower
+// SAP MM/SD Process Simulation & Analytics Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. IDENTITY & RBAC
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  role         String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  purchaseRequisitions PurchaseRequisition[]
+  assignedExceptions   ExceptionRecord[]
+  auditLogs            AuditLog[]
+}
+
+// 2. ENTERPRISE STRUCTURE MASTER DATA
+model Plant {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  city      String
+  country   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  storageLocations         StorageLocation[]
+  materials                Material[]
+  purchaseRequisitionItems PurchaseRequisitionItem[]
+  purchaseOrders           PurchaseOrder[]
+  goodsReceipts            GoodsReceipt[]
+  salesOrderItems          SalesOrderItem[]
+}
+
+model StorageLocation {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  plantId   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plant                Plant                 @relation(fields: [plantId], references: [id], onDelete: Cascade)
+  materials            Material[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  goodsReceiptItems    GoodsReceiptItem[]
+  deliveryItems        DeliveryItem[]
+
+  @@unique([code, plantId])
+}
+
+model PurchasingOrg {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+}
+
+model SalesOrg {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customerInquiries CustomerInquiry[]
+  salesOrders       SalesOrder[]
+}
+
+model DistributionChannel {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesOrders SalesOrder[]
+}
+
+// 3. CORE MASTER DATA
+model Material {
+  id               String   @id @default(cuid())
+  materialNumber   String   @unique
+  name             String
+  category         String
+  description      String?
+  uom              String
+  plantId          String
+  storageLocationId String?
+  currentStock     Float    @default(0)
+  safetyStock      Float    @default(0)
+  reorderLevel     Float    @default(0)
+  standardCost     Float    @default(0)
+  sellingPrice     Float    @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  plant                   Plant                    @relation(fields: [plantId], references: [id])
+  storageLocation         StorageLocation?         @relation(fields: [storageLocationId], references: [id])
+  prItems                 PurchaseRequisitionItem[]
+  poItems                 PurchaseOrderItem[]
+  grItems                 GoodsReceiptItem[]
+  invoiceItems            SupplierInvoiceItem[]
+  inquiryItems            CustomerInquiryItem[]
+  soItems                 SalesOrderItem[]
+  deliveryItems           DeliveryItem[]
+  customerInvoiceItems    CustomerInvoiceItem[]
+}
+
+model Vendor {
+  id                  String   @id @default(cuid())
+  vendorNumber        String   @unique
+  name                String
+  contactPerson       String
+  email               String
+  paymentTerms        String
+  currency            String   @default("EUR")
+  deliveryTolerancePct Float    @default(5.0)
+  priceTolerancePct   Float    @default(2.0)
+  leadTimeDays        Int      @default(7)
+  rating              Float    @default(4.5)
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  purchaseOrders   PurchaseOrder[]
+  supplierInvoices SupplierInvoice[]
+}
+
+model Customer {
+  id              String   @id @default(cuid())
+  customerNumber  String   @unique
+  name            String
+  contactPerson   String
+  email           String
+  paymentTerms    String
+  creditLimit     Float    @default(50000)
+  currentBalance  Float    @default(0)
+  shippingAddress String
+  region          String
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customerInquiries CustomerInquiry[]
+  salesOrders       SalesOrder[]
+  customerInvoices  CustomerInvoice[]
+}
+
+// 4. PROCURE-TO-PAY (P2P) TRANSACTIONS
+model PurchaseRequisition {
+  id            String   @id @default(cuid())
+  prNumber      String   @unique
+  requesterId   String
+  status        String
+  notes         String?
+  requestedDate DateTime @default(now())
+  approvedDate  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  requester      User                      @relation(fields: [requesterId], references: [id])
+  items          PurchaseRequisitionItem[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseRequisitionItem {
+  id             String   @id @default(cuid())
+  prId           String
+  itemNumber     Int
+  materialId     String
+  plantId        String
+  quantity       Float
+  estimatedPrice Float
+  requiredDate   DateTime
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  requisition PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  material    Material            @relation(fields: [materialId], references: [id])
+  plant       Plant               @relation(fields: [plantId], references: [id])
+}
+
+model PurchaseOrder {
+  id                   String    @id @default(cuid())
+  poNumber             String    @unique
+  prId                 String?
+  vendorId             String
+  purchasingOrgId      String
+  plantId              String
+  status               String
+  orderDate            DateTime  @default(now())
+  approvedDate         DateTime?
+  expectedDeliveryDate DateTime
+  totalAmount          Float     @default(0)
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  requisition      PurchaseRequisition? @relation(fields: [prId], references: [id])
+  vendor           Vendor               @relation(fields: [vendorId], references: [id])
+  purchasingOrg    PurchasingOrg        @relation(fields: [purchasingOrgId], references: [id])
+  plant            Plant                @relation(fields: [plantId], references: [id])
+  items            PurchaseOrderItem[]
+  goodsReceipts    GoodsReceipt[]
+  supplierInvoices SupplierInvoice[]
+}
+
+model PurchaseOrderItem {
+  id                String   @id @default(cuid())
+  poId              String
+  itemNumber        Int
+  materialId        String
+  storageLocationId String?
+  orderedQuantity   Float
+  receivedQuantity  Float    @default(0)
+  invoicedQuantity  Float    @default(0)
+  unitPrice         Float
+  netAmount         Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  purchaseOrder       PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
+  material            Material             @relation(fields: [materialId], references: [id])
+  storageLocation     StorageLocation?     @relation(fields: [storageLocationId], references: [id])
+  goodsReceiptItems   GoodsReceiptItem[]
+  supplierInvoiceItems SupplierInvoiceItem[]
+}
+
+model GoodsReceipt {
+  id                 String    @id @default(cuid())
+  grNumber           String    @unique
+  poId               String
+  plantId            String
+  postingDate        DateTime  @default(now())
+  documentDate       DateTime  @default(now())
+  movementType       String    @default("101")
+  status             String
+  deliveryNoteNumber String?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  purchaseOrder    PurchaseOrder      @relation(fields: [poId], references: [id])
+  plant            Plant              @relation(fields: [plantId], references: [id])
+  items            GoodsReceiptItem[]
+  supplierInvoices SupplierInvoice[]
+}
+
+model GoodsReceiptItem {
+  id                String   @id @default(cuid())
+  grId              String
+  poItemId          String
+  materialId        String
+  storageLocationId String?
+  receivedQuantity  Float
+  rejectedQuantity  Float    @default(0)
+  inspectionStatus  String   @default("ACCEPTED")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  goodsReceipt      GoodsReceipt      @relation(fields: [grId], references: [id], onDelete: Cascade)
+  poItem            PurchaseOrderItem @relation(fields: [poItemId], references: [id])
+  material          Material          @relation(fields: [materialId], references: [id])
+  storageLocation   StorageLocation?  @relation(fields: [storageLocationId], references: [id])
+}
+
+model SupplierInvoice {
+  id            String    @id @default(cuid())
+  invoiceNumber String    @unique
+  poId          String
+  grId          String?
+  vendorId      String
+  invoiceDate   DateTime  @default(now())
+  postingDate   DateTime  @default(now())
+  dueDate       DateTime
+  totalAmount   Float
+  matchStatus   String
+  paymentStatus String    @default("UNPAID")
+  paidDate      DateTime?
+  blockReason   String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  purchaseOrder PurchaseOrder         @relation(fields: [poId], references: [id])
+  goodsReceipt  GoodsReceipt?         @relation(fields: [grId], references: [id])
+  vendor        Vendor                @relation(fields: [vendorId], references: [id])
+  items         SupplierInvoiceItem[]
+}
+
+model SupplierInvoiceItem {
+  id               String   @id @default(cuid())
+  invoiceId        String
+  poItemId         String
+  materialId       String
+  invoicedQuantity Float
+  unitPrice        Float
+  lineTotal        Float
+  priceVariance    Float    @default(0)
+  quantityVariance Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  invoice  SupplierInvoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  poItem   PurchaseOrderItem @relation(fields: [poItemId], references: [id])
+  material Material          @relation(fields: [materialId], references: [id])
+}
+
+// 5. ORDER-TO-CASH (O2C) TRANSACTIONS
+model CustomerInquiry {
+  id          String   @id @default(cuid())
+  inqNumber   String   @unique
+  customerId  String
+  salesOrgId  String
+  status      String
+  inquiryDate DateTime @default(now())
+  validUntil  DateTime
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer    Customer              @relation(fields: [customerId], references: [id])
+  salesOrg    SalesOrg              @relation(fields: [salesOrgId], references: [id])
+  items       CustomerInquiryItem[]
+  salesOrders SalesOrder[]
+}
+
+model CustomerInquiryItem {
+  id                String   @id @default(cuid())
+  inqId             String
+  itemNumber        Int
+  materialId        String
+  requestedQuantity Float
+  targetPrice       Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  inquiry  CustomerInquiry @relation(fields: [inqId], references: [id], onDelete: Cascade)
+  material Material        @relation(fields: [materialId], references: [id])
+}
+
+model SalesOrder {
+  id                    String    @id @default(cuid())
+  soNumber              String    @unique
+  inquiryId             String?
+  customerId            String
+  salesOrgId            String
+  distributionChannelId String
+  status                String
+  creditStatus          String    @default("APPROVED")
+  orderDate             DateTime  @default(now())
+  requestedDeliveryDate DateTime
+  totalAmount           Float     @default(0)
+  notes                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  inquiry             CustomerInquiry?    @relation(fields: [inquiryId], references: [id])
+  customer            Customer            @relation(fields: [customerId], references: [id])
+  salesOrg            SalesOrg            @relation(fields: [salesOrgId], references: [id])
+  distributionChannel DistributionChannel @relation(fields: [distributionChannelId], references: [id])
+  items               SalesOrderItem[]
+  deliveries          Delivery[]
+  customerInvoices    CustomerInvoice[]
+}
+
+model SalesOrderItem {
+  id                String   @id @default(cuid())
+  soId              String
+  itemNumber        Int
+  materialId        String
+  plantId           String
+  orderQuantity     Float
+  deliveredQuantity Float    @default(0)
+  billedQuantity    Float    @default(0)
+  unitPrice         Float
+  netAmount         Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  salesOrder    SalesOrder     @relation(fields: [soId], references: [id], onDelete: Cascade)
+  material      Material       @relation(fields: [materialId], references: [id])
+  plant         Plant          @relation(fields: [plantId], references: [id])
+  deliveryItems DeliveryItem[]
+}
+
+model Delivery {
+  id                    String    @id @default(cuid())
+  deliveryNumber        String    @unique
+  soId                  String
+  shippingPoint         String    @default("SP10")
+  deliveryDate          DateTime
+  plannedGoodsIssueDate DateTime
+  actualGoodsIssueDate  DateTime?
+  status                String
+  trackingNumber        String?
+  notes                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  salesOrder       SalesOrder        @relation(fields: [soId], references: [id])
+  items            DeliveryItem[]
+  goodsIssue       GoodsIssue?
+  customerInvoices CustomerInvoice[]
+}
+
+model DeliveryItem {
+  id                String   @id @default(cuid())
+  deliveryId        String
+  soItemId          String
+  materialId        String
+  storageLocationId String?
+  deliveryQuantity  Float
+  pickedQuantity    Float    @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  delivery        Delivery         @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  soItem          SalesOrderItem   @relation(fields: [soItemId], references: [id])
+  material        Material         @relation(fields: [materialId], references: [id])
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id])
+}
+
+model GoodsIssue {
+  id           String   @id @default(cuid())
+  giNumber     String   @unique
+  deliveryId   String   @unique
+  movementType String   @default("601")
+  postingDate  DateTime @default(now())
+  issuedBy     String
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id])
+}
+
+model CustomerInvoice {
+  id            String    @id @default(cuid())
+  invoiceNumber String    @unique
+  deliveryId    String
+  soId          String
+  customerId    String
+  invoiceDate   DateTime  @default(now())
+  dueDate       DateTime
+  totalAmount   Float
+  status        String
+  paidDate      DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  delivery Delivery              @relation(fields: [deliveryId], references: [id])
+  so       SalesOrder            @relation(fields: [soId], references: [id])
+  customer Customer              @relation(fields: [customerId], references: [id])
+  items    CustomerInvoiceItem[]
+}
+
+model CustomerInvoiceItem {
+  id             String   @id @default(cuid())
+  invoiceId      String
+  materialId     String
+  billedQuantity Float
+  unitPrice      Float
+  netAmount      Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invoice  CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  material Material        @relation(fields: [materialId], references: [id])
+}
+
+// 6. BUSINESS RULES & EXCEPTION MANAGEMENT
+model BusinessRule {
+  id                  String   @id @default(cuid())
+  ruleCode            String   @unique
+  name                String
+  description         String
+  category            String
+  conditionExpression String
+  thresholdValue      Float?
+  severity            String
+  active              Boolean  @default(true)
+  recommendedAction   String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  exceptions ExceptionRecord[]
+}
+
+model ExceptionRecord {
+  id                   String    @id @default(cuid())
+  exceptionNumber      String    @unique
+  ruleId               String
+  ruleCode             String
+  ruleName             String
+  category             String
+  severity             String
+  status               String    @default("OPEN")
+  sourceDocumentType   String
+  sourceDocumentId     String
+  sourceDocumentNumber String
+  businessImpact       String
+  expectedValue        String
+  actualValue          String
+  variance             String
+  assignedUserId       String?
+  resolutionNotes      String?
+  resolvedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  rule         BusinessRule @relation(fields: [ruleId], references: [id])
+  assignedUser User?        @relation(fields: [assignedUserId], references: [id])
+}
+
+// 7. AUDIT TRAIL & SYSTEM METRICS
+model AuditLog {
+  id             String   @id @default(cuid())
+  userId         String?
+  username       String
+  role           String?
+  action         String
+  module         String
+  documentType   String
+  documentId     String
+  documentNumber String
+  previousStatus String?
+  newStatus      String?
+  details        String?
+  ipAddress      String?  @default("127.0.0.1")
+  createdAt      DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model KpiSnapshot {
+  id              String   @id @default(cuid())
+  snapshotDate    DateTime @default(now())
+  kpiCode         String
+  kpiName         String
+  module          String
+  calculatedValue Float
+  unit            String
+  targetValue     Float?
+  benchmarkStatus String
+  detailsJson     String?
+}
