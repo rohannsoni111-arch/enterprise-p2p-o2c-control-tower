@@ -1,0 +1,27 @@
+{
+  "name": "enterprise-sap-control-tower-monorepo",
+  "version": "1.0.0",
+  "description": "Enterprise Procure-to-Pay (P2P) & Order-to-Cash (O2C) Digital Control Tower - SAP MM/SD Process Simulation",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd frontend && npm run dev",
+    "db:migrate": "cd backend && npx prisma migrate dev",
+    "db:seed": "cd backend && npm run seed",
+    "test": "cd backend && npm test",
+    "build": "cd backend && npm run build && cd ../frontend && npm run build"
+  },
+  "keywords": [
+    "sap",
+    "mm",
+    "sd",
+    "p2p",
+    "o2c",
+    "control-tower",
+    "business-process",
+    "enterprise"
+  ],
+  "author": "Functional Consultant Portfolio",
+  "license": "MIT"
+}
